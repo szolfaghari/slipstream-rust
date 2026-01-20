@@ -10,23 +10,26 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Dependencies
+      - name: Install NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup vcpkg
         run: |
-          choco install nasm
-          choco install strawberryperl
-          echo "C:\Program Files\NASM" >> $GITHUB_PATH
+          vcpkg install openssl:x64-windows-static
+          vcpkg integrate install
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
-        shell: cmd
+        shell: pwsh
         run: cargo build --release --workspace
         env:
           PICOQUIC_AUTO_BUILD: 1
-          OPENSSL_VENDORED: 1
-          # Forces the C compiler to be quiet and link correctly
-          CFLAGS: "/DWIN32 /D_WINDOWS"
+          # Tell Rust to use the OpenSSL we just installed via vcpkg
+          VCPKG_ROOT: C:/tools/vcpkg
+          OPENSSL_NO_VENDOR: 1 
+          RUSTFLAGS: "-C target-feature=+crt-static"
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
