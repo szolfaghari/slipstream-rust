@@ -13,12 +13,12 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      - name: Setup vcpkg
+      - name: Install OpenSSL via vcpkg
         run: |
           vcpkg install openssl:x64-windows-static
           vcpkg integrate install
 
-      - name: Install Rust
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
@@ -26,10 +26,9 @@ jobs:
         run: cargo build --release --workspace
         env:
           PICOQUIC_AUTO_BUILD: 1
-          # Tell Rust to use the OpenSSL we just installed via vcpkg
-          VCPKG_ROOT: C:/tools/vcpkg
-          OPENSSL_NO_VENDOR: 1 
-          RUSTFLAGS: "-C target-feature=+crt-static"
+          # This uses GitHub's built-in path variable to find vcpkg
+          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+          OPENSSL_NO_VENDOR: 1
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
