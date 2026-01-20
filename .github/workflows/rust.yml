@@ -14,10 +14,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
-        # We add '--features vendored' to fix the OpenSSL error
-        run: cargo build --release --features openssl/vendored
+        # We use VENDORED environment variable for maximum compatibility
+        run: cargo build --release --workspace
         env:
           PICOQUIC_AUTO_BUILD: 1
+          OPENSSL_STATIC: 1
+          # This force-enables the vendored feature for all crates in the workspace
+          OPENSSL_VENDORED: 1
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
