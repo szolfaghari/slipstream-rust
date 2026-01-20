@@ -4,6 +4,7 @@ on: [workflow_dispatch, push]
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -14,21 +15,28 @@ jobs:
         uses: ilammy/setup-nasm@v1
 
       - name: Install OpenSSL via vcpkg
+        shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
-          vcpkg integrate install
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
         shell: pwsh
-        run: cargo build --release --workspace
         env:
           PICOQUIC_AUTO_BUILD: 1
-          # This uses GitHub's built-in path variable to find vcpkg
-          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+
+          # ✅ correct and explicit
+          VCPKG_ROOT: C:/vcpkg
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
+
+          # ✅ required for openssl-sys
+          OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
+          OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
+
+        run: cargo build --release --workspace
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
