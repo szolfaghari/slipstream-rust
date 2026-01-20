@@ -14,7 +14,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
-        run: cargo build --release
+        # We add '--features vendored' to fix the OpenSSL error
+        run: cargo build --release --features openssl/vendored
         env:
           PICOQUIC_AUTO_BUILD: 1
 
