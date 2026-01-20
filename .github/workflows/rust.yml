@@ -1,0 +1,27 @@
+name: Build Windows Binaries
+on: [workflow_dispatch, push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Project
+        run: cargo build --release
+        env:
+          PICOQUIC_AUTO_BUILD: 1
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipstream-windows-x64
+          path: |
+            target/release/slipstream-client.exe
+            target/release/slipstream-server.exe
