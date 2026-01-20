@@ -10,17 +10,23 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Dependencies
+        run: |
+          choco install nasm
+          choco install strawberryperl
+          echo "C:\Program Files\NASM" >> $GITHUB_PATH
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build Project
-        # We use VENDORED environment variable for maximum compatibility
+        shell: cmd
         run: cargo build --release --workspace
         env:
           PICOQUIC_AUTO_BUILD: 1
-          OPENSSL_STATIC: 1
-          # This force-enables the vendored feature for all crates in the workspace
           OPENSSL_VENDORED: 1
+          # Forces the C compiler to be quiet and link correctly
+          CFLAGS: "/DWIN32 /D_WINDOWS"
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
