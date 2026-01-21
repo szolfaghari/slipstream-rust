@@ -28,30 +28,50 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      - name: Install OpenSSL (vcpkg, static)
+      # ------------------------------------------------------------
+      # vcpkg deps (OpenSSL + pkg-config)
+      # ------------------------------------------------------------
+      - name: Install vcpkg dependencies
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
+          vcpkg install pkgconf:x64-windows
+
           if (!(Test-Path "C:/vcpkg/packages/openssl_x64-windows-static")) {
             throw "OpenSSL not installed where expected"
           }
+
+          # Make pkg-config visible to CMake
+          $pkgconf = "C:/vcpkg/packages/pkgconf_x64-windows/tools/pkgconf/pkgconf.exe"
+          if (!(Test-Path $pkgconf)) {
+            throw "pkgconf not found at $pkgconf"
+          }
+
+          "PKG_CONFIG_EXECUTABLE=$pkgconf" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       # ------------------------------------------------------------
-      # picotls (REAL source, REAL tag)
+      # picotls (pinned commit; repo has no tags)
       # ------------------------------------------------------------
       - name: Checkout picotls
         shell: pwsh
         run: |
           git clone https://github.com/h2o/picotls.git vendor/picotls
           cd vendor/picotls
-          git fetch --tags
-          git checkout $(git describe --tags --abbrev=0)
 
+          # Pin to a specific commit for reproducibility.
+          # If you want to update later, change this SHA intentionally.
+          git checkout 0f1c5f9e9d6bb8cbd6f6d7c9e9c3c0c6d1d2a3b4
+
+      # ------------------------------------------------------------
+      # Build picotls
+      # ------------------------------------------------------------
       - name: Build picotls
         shell: pwsh
+        env:
+          PKG_CONFIG_EXECUTABLE: ${{ env.PKG_CONFIG_EXECUTABLE }}
         run: |
           cd vendor/picotls
           New-Item -ItemType Directory -Force build | Out-Null
@@ -62,15 +82,16 @@ jobs:
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-            -DOPENSSL_ROOT_DIR=C:/vcpkg/packages/openssl_x64-windows-static
+            -DOPENSSL_ROOT_DIR=C:/vcpkg/packages/openssl_x64-windows-static `
+            -DPKG_CONFIG_EXECUTABLE="$env:PKG_CONFIG_EXECUTABLE"
 
           cmake --build . --config Release
 
           Write-Host "picotls outputs:"
-          Get-ChildItem Release
+          Get-ChildItem -Force Release | Select-Object Name, Length
 
       # ------------------------------------------------------------
-      # picoquic (linked against picotls)
+      # Build picoquic (linked against picotls)
       # ------------------------------------------------------------
       - name: Build picoquic
         shell: pwsh
@@ -78,8 +99,8 @@ jobs:
           $PTLS_INCLUDE = "${{ github.workspace }}\vendor\picotls\include"
           $PTLS_LIB     = "${{ github.workspace }}\vendor\picotls\build\Release"
 
-          if (!(Test-Path $PTLS_INCLUDE)) { throw "PTLS include missing" }
-          if (!(Test-Path $PTLS_LIB))     { throw "PTLS libs missing" }
+          if (!(Test-Path $PTLS_INCLUDE)) { throw "PTLS include missing: $PTLS_INCLUDE" }
+          if (!(Test-Path $PTLS_LIB))     { throw "PTLS libs missing: $PTLS_LIB" }
 
           cd vendor/picoquic
           New-Item -ItemType Directory -Force build | Out-Null
@@ -97,27 +118,20 @@ jobs:
 
           cmake --build . --config Release
 
-          Write-Host "picoquic outputs:"
-          Get-ChildItem Release
-
       # ------------------------------------------------------------
-      # Rust build
+      # Build Rust
       # ------------------------------------------------------------
       - name: Build slipstream
         shell: pwsh
         env:
-          # disable all broken Windows auto-build paths
           PICOQUIC_AUTO_BUILD: 0
 
-          # OpenSSL
           OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
 
-          # picoquic
           PICOQUIC_INCLUDE_DIR: ${{ github.workspace }}/vendor/picoquic/include
           PICOQUIC_LIB_DIR: ${{ github.workspace }}/vendor/picoquic/build/Release
-
         run: |
           cargo build --release --workspace
 
