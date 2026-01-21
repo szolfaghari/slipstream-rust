@@ -14,7 +14,7 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      # ---- OpenSSL (vcpkg) ----
+      # ---------- OpenSSL ----------
       - name: Install OpenSSL via vcpkg
         shell: pwsh
         run: |
@@ -23,7 +23,24 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # ---- Build picoquic manually (MSVC + CMake) ----
+      # ---------- Build picotls ----------
+      - name: Build picotls
+        shell: pwsh
+        run: |
+          cd vendor/picoquic/deps/picotls
+          mkdir build
+          cd build
+
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DOPENSSL_ROOT_DIR=C:/vcpkg/packages/openssl_x64-windows-static
+
+          cmake --build . --config Release
+
+      # ---------- Build picoquic ----------
       - name: Build picoquic
         shell: pwsh
         run: |
@@ -35,27 +52,27 @@ jobs:
             -G "Visual Studio 17 2022" `
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DPTLS_INCLUDE_DIR=${{ github.workspace }}/vendor/picoquic/deps/picotls/include `
+            -DPTLS_CORE_LIBRARY=${{ github.workspace }}/vendor/picoquic/deps/picotls/build/Release/picotls-core.lib `
+            -DPTLS_OPENSSL_LIBRARY=${{ github.workspace }}/vendor/picoquic/deps/picotls/build/Release/picotls-openssl.lib `
+            -DPTLS_MINICRYPTO_LIBRARY=${{ github.workspace }}/vendor/picoquic/deps/picotls/build/Release/picotls-minicrypto.lib
 
           cmake --build . --config Release
 
-      # ---- Build Rust workspace ----
+      # ---------- Build Rust ----------
       - name: Build Project
         shell: pwsh
         env:
           # disable broken auto-build
           PICOQUIC_AUTO_BUILD: 0
 
-          # vcpkg
-          VCPKG_ROOT: C:/vcpkg
-          VCPKG_DEFAULT_TRIPLET: x64-windows-static
-
           # OpenSSL
           OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
 
-          # picoquic (manual build)
+          # picoquic
           PICOQUIC_INCLUDE_DIR: ${{ github.workspace }}/vendor/picoquic/include
           PICOQUIC_LIB_DIR: ${{ github.workspace }}/vendor/picoquic/build/Release
 
