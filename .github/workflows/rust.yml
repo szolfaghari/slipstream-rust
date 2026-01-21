@@ -1,11 +1,15 @@
 name: Build Windows Binaries
-on: [workflow_dispatch, push]
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
+      # ---------------- Checkout ----------------
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
@@ -15,34 +19,46 @@ jobs:
         shell: pwsh
         run: |
           git submodule update --init --recursive
-          if (!(Test-Path "vendor/picoquic")) { throw "vendor/picoquic missing" }
+          if (!(Test-Path "vendor/picoquic")) {
+            throw "vendor/picoquic missing after submodule update"
+          }
 
+      # ---------------- Tooling ----------------
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      # ---------------- OpenSSL (vcpkg) ----------------
+      # ---------------- OpenSSL ----------------
       - name: Install OpenSSL via vcpkg
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
 
+      # ---------------- Rust ----------------
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # ---------------- Fetch picotls (pinned) ----------------
-      - name: Checkout picotls
+      # ---------------- Locate picotls ----------------
+      - name: Locate picotls
         shell: pwsh
         run: |
-          git clone https://github.com/h2o/picotls.git vendor/picotls
-          cd vendor/picotls
-          # Pin to a known-good commit for reproducibility (change only if you want)
-          git checkout 9b6b6e6f2a8d6d1d6e7b9b0b3c7c2f2a7f3a1b2c
+          $root = Join-Path $env:GITHUB_WORKSPACE "vendor\picoquic"
+
+          $ptls = Get-ChildItem -Path $root -Directory -Recurse |
+            Where-Object { $_.Name -ieq "picotls" } |
+            Select-Object -First 1
+
+          if (-not $ptls) {
+            throw "Could not find picotls directory inside vendor/picoquic"
+          }
+
+          "PTLS_DIR=$($ptls.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Found picotls at $($ptls.FullName)"
 
       # ---------------- Build picotls ----------------
       - name: Build picotls
         shell: pwsh
         run: |
-          cd vendor/picotls
+          cd "$env:PTLS_DIR"
           if (!(Test-Path build)) { mkdir build }
           cd build
 
@@ -51,7 +67,7 @@ jobs:
             -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
-            -DOPENSSL_ROOT_DIR=C:/vcpkg/packages/openssl_x64-windows-static
+            -DOPENSSL_ROOT_DIR=C:/vcpkg/installed/x64-windows-static
 
           cmake --build . --config Release
 
@@ -59,8 +75,8 @@ jobs:
       - name: Build picoquic
         shell: pwsh
         run: |
-          $ptlsInclude = "${{ github.workspace }}\vendor\picotls\include"
-          $ptlsLibDir  = "${{ github.workspace }}\vendor\picotls\build\Release"
+          $ptlsInclude = Join-Path $env:PTLS_DIR "include"
+          $ptlsLibDir  = Join-Path $env:PTLS_DIR "build\Release"
 
           cd vendor/picoquic
           if (!(Test-Path build)) { mkdir build }
@@ -82,11 +98,11 @@ jobs:
       - name: Build Project
         shell: pwsh
         env:
-          # disable broken picoquic auto-build on Windows
+          # disable broken Windows auto-build
           PICOQUIC_AUTO_BUILD: 0
 
           # OpenSSL
-          OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
+          OPENSSL_DIR: C:/vcpkg/installed/x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
 
@@ -96,10 +112,9 @@ jobs:
 
         run: cargo build --release --workspace
 
+      # ---------------- Artifacts ----------------
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: slipstream-windows-x64
-          path: |
-            target/release/slipstream-client.exe
-            target/release/slipstream-server.exe
+          name: windows-binaries
+          path: target/release
