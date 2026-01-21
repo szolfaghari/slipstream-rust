@@ -14,33 +14,50 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      - name: Install dependencies via vcpkg
+      # ---- OpenSSL (vcpkg) ----
+      - name: Install OpenSSL via vcpkg
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
-          vcpkg install picoquic:x64-windows-static
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # ---- Build picoquic manually (MSVC + CMake) ----
+      - name: Build picoquic
+        shell: pwsh
+        run: |
+          cd vendor/picoquic
+          mkdir build
+          cd build
+
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+          cmake --build . --config Release
+
+      # ---- Build Rust workspace ----
       - name: Build Project
         shell: pwsh
         env:
-          # Disable broken picoquic auto-build on Windows
+          # disable broken auto-build
           PICOQUIC_AUTO_BUILD: 0
 
           # vcpkg
           VCPKG_ROOT: C:/vcpkg
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
 
-          # OpenSSL (static)
+          # OpenSSL
           OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
 
-          # picoquic from vcpkg
-          PICOQUIC_INCLUDE_DIR: C:/vcpkg/packages/picoquic_x64-windows-static/include
-          PICOQUIC_LIB_DIR: C:/vcpkg/packages/picoquic_x64-windows-static/lib
+          # picoquic (manual build)
+          PICOQUIC_INCLUDE_DIR: ${{ github.workspace }}/vendor/picoquic/include
+          PICOQUIC_LIB_DIR: ${{ github.workspace }}/vendor/picoquic/build/Release
 
         run: cargo build --release --workspace
 
