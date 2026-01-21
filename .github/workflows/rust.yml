@@ -14,10 +14,11 @@ jobs:
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
-      - name: Install OpenSSL via vcpkg
+      - name: Install dependencies via vcpkg
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
+          vcpkg install picoquic:x64-windows-static
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -25,16 +26,21 @@ jobs:
       - name: Build Project
         shell: pwsh
         env:
-          PICOQUIC_AUTO_BUILD: 1
+          # Disable broken picoquic auto-build on Windows
+          PICOQUIC_AUTO_BUILD: 0
 
-          # ✅ correct and explicit
+          # vcpkg
           VCPKG_ROOT: C:/vcpkg
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
 
-          # ✅ required for openssl-sys
+          # OpenSSL (static)
           OPENSSL_DIR: C:/vcpkg/packages/openssl_x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
+
+          # picoquic from vcpkg
+          PICOQUIC_INCLUDE_DIR: C:/vcpkg/packages/picoquic_x64-windows-static/include
+          PICOQUIC_LIB_DIR: C:/vcpkg/packages/picoquic_x64-windows-static/lib
 
         run: cargo build --release --workspace
 
