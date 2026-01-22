@@ -12,7 +12,7 @@ jobs:
           submodules: recursive
 
       # ------------------------------------------------------------
-      # System deps (NO OpenSSL here)
+      # System dependencies (NO OpenSSL, NO pkg-config usage)
       # ------------------------------------------------------------
       - name: Install system dependencies
         run: |
@@ -20,7 +20,6 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             cmake \
-            pkg-config \
             nasm \
             mingw-w64
 
@@ -33,17 +32,18 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       # ------------------------------------------------------------
-      # Build (vendored OpenSSL)
+      # Build (FORCED vendored OpenSSL)
       # ------------------------------------------------------------
       - name: Build Windows binaries
         env:
           CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
 
-          # 🔥 THIS IS THE FIX
+          # 🔒 FORCE vendored OpenSSL
           OPENSSL_USE_VENDORED: 1
+          OPENSSL_NO_PKG_CONFIG: 1
           OPENSSL_STATIC: 1
 
-          # picoquic builds fine on Linux
+          # picoquic builds correctly on Linux
           PICOQUIC_AUTO_BUILD: 1
 
           # static CRT
