@@ -1,70 +1,44 @@
-name: Build Windows Binaries (cross x86_64-pc-windows-gnu)
+name: Build Windows Binaries
 on: [workflow_dispatch, push]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    runs-on: windows-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install APT deps
+      - name: Install NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Install OpenSSL via vcpkg
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            cmake \
-            pkg-config \
-            nasm \
-            mingw-w64 \
-            ca-certificates
+          vcpkg install openssl:x64-windows-static
+          vcpkg integrate install
 
-      - name: Install Rust + Windows target
+      - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
 
-      - name: Ensure CARGO_TARGET_DIR exists
-        run: mkdir -p target/x86_64-pc-windows-gnu
-
-      - name: Build (cross compile to Windows) - FORCE vendored OpenSSL
+      - name: Build Project
+        shell: pwsh
+        run: cargo build --release --workspace
         env:
-          # target
-          CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
-
-          # FORCE openssl-sys to build vendored OpenSSL (do NOT rely on pkg-config)
-          OPENSSL_USE_VENDORED: 1
-          OPENSSL_NO_PKG_CONFIG: 1
-          OPENSSL_STATIC: 1
-
-          # picoquic - let it auto-build
           PICOQUIC_AUTO_BUILD: 1
-
-          # static CRT for windows-gnu target (optional but commonly used)
+          # Dynamic pathing for GitHub's virtual machine
+          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
+          OPENSSL_DIR: "${{ env.VCPKG_INSTALLATION_ROOT }}\\installed\\x64-windows-static"
+          OPENSSL_STATIC: 1
+          OPENSSL_NO_VENDOR: 1
+          # Ensures the Visual Studio C++ runtime is also bundled inside the .exe
           RUSTFLAGS: "-C target-feature=+crt-static"
 
-          # reduce noise from vcpkg detection (if present)
-          VCPKG_ROOT: ""
-
-        run: |
-          # basic sanity print
-          echo "Building for target: $CARGO_BUILD_TARGET"
-          rustc --version
-          cargo build --release --workspace --target ${CARGO_BUILD_TARGET}
-
-      - name: Show build outputs
-        run: |
-          ls -la target/${CARGO_BUILD_TARGET}/release || true
-          file target/${CARGO_BUILD_TARGET}/release/* 2>/dev/null || true
-
-      - name: Upload Windows artifacts
+      - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
           name: slipstream-windows-x64
           path: |
-            target/x86_64-pc-windows-gnu/release/slipstream-client.exe
-            target/x86_64-pc-windows-gnu/release/slipstream-server.exe
+            target/release/slipstream-client.exe
+            target/release/slipstream-server.exe
