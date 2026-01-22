@@ -1,15 +1,29 @@
 name: Build Windows Binaries
-on: [workflow_dispatch, push]
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
+      # ---------------- Checkout ----------------
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      - name: Ensure submodules are present
+        shell: pwsh
+        run: |
+          git submodule update --init --recursive
+          if (!(Test-Path "vendor/picoquic")) {
+            throw "vendor/picoquic missing after submodule update"
+          }
+
+      # ---------------- Tooling ----------------
       - name: Install NASM
         uses: ilammy/setup-nasm@v1
 
@@ -17,28 +31,88 @@ jobs:
         shell: pwsh
         run: |
           vcpkg install openssl:x64-windows-static
-          vcpkg integrate install
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
+      - name: Add MSVC target
+        shell: pwsh
+        run: rustup target add x86_64-pc-windows-msvc
+
+      # ---------------- Locate picotls ----------------
+      - name: Locate picotls
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE "vendor\picoquic"
+
+          $ptls = Get-ChildItem -Path $root -Directory -Recurse |
+            Where-Object { $_.Name -ieq "picotls" } |
+            Select-Object -First 1
+
+          if (-not $ptls) {
+            throw "Could not find picotls directory inside vendor/picoquic"
+          }
+
+          "PTLS_DIR=$($ptls.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Found picotls at $($ptls.FullName)"
+
+      # ---------------- Build picotls ----------------
+      - name: Build picotls
+        shell: pwsh
+        run: |
+          cd "$env:PTLS_DIR"
+          if (!(Test-Path build)) { mkdir build }
+          cd build
+
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DOPENSSL_ROOT_DIR=C:/vcpkg/installed/x64-windows-static
+
+          cmake --build . --config Release
+
+      # ---------------- Build picoquic ----------------
+      - name: Build picoquic
+        shell: pwsh
+        run: |
+          $ptlsInclude = Join-Path $env:PTLS_DIR "include"
+          $ptlsLibDir  = Join-Path $env:PTLS_DIR "build\Release"
+
+          cd vendor/picoquic
+          if (!(Test-Path build)) { mkdir build }
+          cd build
+
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DPTLS_INCLUDE_DIR="$ptlsInclude" `
+            -DPTLS_CORE_LIBRARY="$ptlsLibDir\picotls-core.lib" `
+            -DPTLS_OPENSSL_LIBRARY="$ptlsLibDir\picotls-openssl.lib" `
+            -DPTLS_MINICRYPTO_LIBRARY="$ptlsLibDir\picotls-minicrypto.lib"
+
+          cmake --build . --config Release
+
+      # ---------------- Build Rust ----------------
       - name: Build Project
         shell: pwsh
-        run: cargo build --release --workspace
         env:
-          PICOQUIC_AUTO_BUILD: 1
-          # Dynamic pathing for GitHub's virtual machine
-          VCPKG_ROOT: ${{ env.VCPKG_INSTALLATION_ROOT }}
-          OPENSSL_DIR: "${{ env.VCPKG_INSTALLATION_ROOT }}\\installed\\x64-windows-static"
+          PICOQUIC_AUTO_BUILD: 0
+          OPENSSL_DIR: C:/vcpkg/installed/x64-windows-static
           OPENSSL_STATIC: 1
           OPENSSL_NO_VENDOR: 1
-          # Ensures the Visual Studio C++ runtime is also bundled inside the .exe
-          RUSTFLAGS: "-C target-feature=+crt-static"
+          PICOQUIC_INCLUDE_DIR: ${{ github.workspace }}/vendor/picoquic/include
+          PICOQUIC_LIB_DIR: ${{ github.workspace }}/vendor/picoquic/build/Release
+        run: cargo build --release --workspace --target x86_64-pc-windows-msvc
 
+      # ---------------- Artifacts ----------------
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
-          name: slipstream-windows-x64
-          path: |
-            target/release/slipstream-client.exe
-            target/release/slipstream-server.exe
+          name: windows-binaries
+          path: target/x86_64-pc-windows-msvc/release
