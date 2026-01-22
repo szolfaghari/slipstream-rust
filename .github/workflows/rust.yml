@@ -12,7 +12,7 @@ jobs:
           submodules: recursive
 
       # ------------------------------------------------------------
-      # Install system + MinGW dependencies
+      # System deps (NO OpenSSL here)
       # ------------------------------------------------------------
       - name: Install system dependencies
         run: |
@@ -22,9 +22,7 @@ jobs:
             cmake \
             pkg-config \
             nasm \
-            mingw-w64 \
-            libssl-dev \
-            libssl-dev-mingw-w64-x86-64
+            mingw-w64
 
       # ------------------------------------------------------------
       # Rust + Windows target
@@ -35,20 +33,17 @@ jobs:
           targets: x86_64-pc-windows-gnu
 
       # ------------------------------------------------------------
-      # Build
+      # Build (vendored OpenSSL)
       # ------------------------------------------------------------
       - name: Build Windows binaries
         env:
           CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
 
-          # 🔑 THIS IS THE KEY FIX
-          OPENSSL_DIR: /usr/x86_64-w64-mingw32
+          # 🔥 THIS IS THE FIX
+          OPENSSL_USE_VENDORED: 1
           OPENSSL_STATIC: 1
-          OPENSSL_NO_VENDOR: 1
 
-          PKG_CONFIG_ALLOW_CROSS: 1
-
-          # picoquic builds correctly on Linux
+          # picoquic builds fine on Linux
           PICOQUIC_AUTO_BUILD: 1
 
           # static CRT
