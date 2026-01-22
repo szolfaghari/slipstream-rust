@@ -1,61 +1,67 @@
-name: Build Windows Binaries (Cross Compile)
+name: Build Windows Binaries (cross x86_64-pc-windows-gnu)
 on: [workflow_dispatch, push]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # ------------------------------------------------------------
-      # System dependencies (NO OpenSSL, NO pkg-config usage)
-      # ------------------------------------------------------------
-      - name: Install system dependencies
+      - name: Install APT deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
+            pkg-config \
             nasm \
-            mingw-w64
+            mingw-w64 \
+            ca-certificates
 
-      # ------------------------------------------------------------
-      # Rust + Windows target
-      # ------------------------------------------------------------
-      - name: Install Rust
+      - name: Install Rust + Windows target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-gnu
 
-      # ------------------------------------------------------------
-      # Build (FORCED vendored OpenSSL)
-      # ------------------------------------------------------------
-      - name: Build Windows binaries
+      - name: Ensure CARGO_TARGET_DIR exists
+        run: mkdir -p target/x86_64-pc-windows-gnu
+
+      - name: Build (cross compile to Windows) - FORCE vendored OpenSSL
         env:
+          # target
           CARGO_BUILD_TARGET: x86_64-pc-windows-gnu
 
-          # 🔒 FORCE vendored OpenSSL
+          # FORCE openssl-sys to build vendored OpenSSL (do NOT rely on pkg-config)
           OPENSSL_USE_VENDORED: 1
           OPENSSL_NO_PKG_CONFIG: 1
           OPENSSL_STATIC: 1
 
-          # picoquic builds correctly on Linux
+          # picoquic - let it auto-build
           PICOQUIC_AUTO_BUILD: 1
 
-          # static CRT
+          # static CRT for windows-gnu target (optional but commonly used)
           RUSTFLAGS: "-C target-feature=+crt-static"
 
-        run: |
-          cargo build --release --workspace
+          # reduce noise from vcpkg detection (if present)
+          VCPKG_ROOT: ""
 
-      # ------------------------------------------------------------
-      # Artifacts
-      # ------------------------------------------------------------
-      - name: Upload Windows binaries
+        run: |
+          # basic sanity print
+          echo "Building for target: $CARGO_BUILD_TARGET"
+          rustc --version
+          cargo build --release --workspace --target ${CARGO_BUILD_TARGET}
+
+      - name: Show build outputs
+        run: |
+          ls -la target/${CARGO_BUILD_TARGET}/release || true
+          file target/${CARGO_BUILD_TARGET}/release/* 2>/dev/null || true
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: slipstream-windows-x64
